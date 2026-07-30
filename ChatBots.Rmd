@@ -1,7 +1,7 @@
 ---
-title: "ChatBot Analyses"
+title: "Chatbot Analyses"
 output: html_document
-date: "06-09-2026"
+date: "07-30-2026"
 editor_options: 
   chunk_output_type: console
 ---
@@ -18,6 +18,8 @@ library(tidyr)
 library(survey)
 library(openxlsx)
 library(psych)
+library(broom)
+library(purrr)
 ```
 ```{r Import Data}
 ChatBots_DATA <- read_sav("ChatBots_DATA.sav")
@@ -186,6 +188,60 @@ ChatBots_DATA$Daily_SM_use <- ifelse(
   ChatBots_DATA$SM_Frequency_11 %in% c(4,5),
   1, 0
 )
+
+# AUDIT-C scoring
+ChatBots_DATA <- ChatBots_DATA %>%
+  mutate(
+    AUDIT_C_1_score = as.numeric(AUDIT_C_1),
+
+    AUDIT_C_2_score = case_when(
+      AUDIT_C_1 == 0 ~ 0,
+      AUDIT_C_2 == 9 ~ 0,
+      TRUE ~ as.numeric(AUDIT_C_2)
+    ),
+
+    AUDIT_C_3_score = case_when(
+      AUDIT_C_1 == 0 ~ 0,
+      AUDIT_C_3 == 9 ~ 0,
+      TRUE ~ as.numeric(AUDIT_C_3)
+    ),
+
+    AUDIT_C_total =
+      AUDIT_C_1_score +
+      AUDIT_C_2_score +
+      AUDIT_C_3_score
+  )
+
+#AI Chatbot Use for Alcohol/Drug Concerns
+ChatBots_DATA <- ChatBots_DATA %>%
+  mutate(
+    AI_support_subst_recode = case_when(
+      Ai_support_subst == 1 ~ 1,
+      Ai_support_subst == 2 ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
+
+#Hazardous Drinking (AUDIT-C)
+ChatBots_DATA <- ChatBots_DATA %>%
+  mutate(
+    AUDIT_C_hazardous = case_when(
+
+      # Men: AUDIT-C >= 4
+      gender4 == 1 & AUDIT_C_total >= 4 ~ 1,
+
+      # Women, non-binary, and other: AUDIT-C >= 3
+      gender4 %in% c(2, 3, 4) & AUDIT_C_total >= 3 ~ 1,
+
+      # Below the applicable cutoff
+      gender4 == 1 & AUDIT_C_total < 4 ~ 0,
+      gender4 %in% c(2, 3, 4) & AUDIT_C_total < 3 ~ 0,
+
+      TRUE ~ NA_real_
+    )
+  )
+
+
 ```
 ```{r Survey weighted object}
 design <- svydesign(
@@ -210,7 +266,30 @@ w_sd <- function(var){
   sqrt(svyvar(as.formula(paste0("~", var)), design, na.rm = TRUE))
 }
 ```
+```{r Survey duration}
+ChatBots_DATA$starttime <- as.POSIXct(ChatBots_DATA$starttime)
+ChatBots_DATA$endtime   <- as.POSIXct(ChatBots_DATA$endtime)
 
+ChatBots_DATA$duration_min <-
+  as.numeric(difftime(ChatBots_DATA$endtime,
+                      ChatBots_DATA$starttime,
+                      units="mins"))
+
+summary(ChatBots_DATA$duration_min)
+
+median(ChatBots_DATA$duration_min)
+
+quantile(ChatBots_DATA$duration_min,
+         probs=c(.01,.05,.10,.90,.95,.99))
+
+sum(ChatBots_DATA$duration_min > 60, na.rm = TRUE)
+
+sum(ChatBots_DATA$duration_min > 120, na.rm = TRUE)
+
+sum(ChatBots_DATA$duration_min > 1440, na.rm = TRUE)  # >1 day
+```
+
+#Chatbots Mental Health
 #Table 1
 ```{r Age}
 #Age
@@ -586,10 +665,7 @@ freqdist::freqdist(ChatBots_DATA$AI_reason_sympathy_med)
 100 * coef(svymean(~AI_reason_positive_med, design, na.rm = TRUE))
 100 * coef(svymean(~AI_reason_sympathy_med, design, na.rm = TRUE))
 
-
-
 ```
-
 
 #Table 3
 ```{r Reasons for support}
@@ -1094,8 +1170,531 @@ exp(coef(MH_Family_daily_adjMH))
 exp(confint(MH_Family_daily_adjMH))
 ```
 
+#BH Correction
+```{r Multiple-comparison corrections}
+# Helper function 
+extract_svy_p <- function(model, term, exposure, outcome, table) {
+  
+  coef_table <- summary(model)$coefficients
+  
+  # Automatically identify the p-value column
+  p_col <- grep("^Pr\\(", colnames(coef_table), value = TRUE)
+  
+  if (length(p_col) != 1) {
+    stop("Could not uniquely identify the p-value column.")
+  }
+  
+  if (!term %in% rownames(coef_table)) {
+    stop(paste("Term", term, "was not found in the model."))
+  }
+  
+  data.frame(
+    table = table,
+    exposure = exposure,
+    outcome = outcome,
+    term = term,
+    estimate = coef_table[term, "Estimate"],
+    p_value = coef_table[term, p_col],
+    stringsAsFactors = FALSE
+  )
+}
 
 
+# TABLE 4: Mental health outcomes
+table4_pvalues <- rbind(
+  
+  # Lifetime AI mental health support use
+  extract_svy_p(
+    MH_PHQ9_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "PHQ-9 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "GAD-7 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_PHQ9_total_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "PHQ-9 total",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_total_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "GAD-7 total",
+    "Table 4"
+  ),
+  
+  
+  # Past 30-day AI mental health support use
+  extract_svy_p(
+    MH_PHQ9_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "PHQ-9 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "GAD-7 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_PHQ9_total_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "PHQ-9 total",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_total_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "GAD-7 total",
+    "Table 4"
+  ),
+  
+  
+  # Daily AI mental health support use
+  extract_svy_p(
+    MH_PHQ9_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "PHQ-9 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "GAD-7 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_PHQ9_total_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "PHQ-9 total",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_total_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "GAD-7 total",
+    "Table 4"
+  )
+)
+
+
+# TABLE 5: Human help-seeking outcomes
+table5_pvalues <- rbind(
+  
+  # Lifetime AI mental health support use
+  extract_svy_p(
+    MH_Prof_lifetime_adjMH,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "Professional support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Friend_lifetime_adjMH,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "Friend support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Family_lifetime_adjMH,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "Family support",
+    "Table 5"
+  ),
+  
+  
+  # Past 30-day AI mental health support use
+  extract_svy_p(
+    MH_Prof_30day_adjMH,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "Professional support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Friend_30day_adjMH,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "Friend support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Family_30day_adjMH,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "Family support",
+    "Table 5"
+  ),
+  
+  
+  # Daily AI mental health support use
+  extract_svy_p(
+    MH_Prof_daily_adjMH,
+    "AI_MH_daily_use",
+    "Daily use",
+    "Professional support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Friend_daily_adjMH,
+    "AI_MH_daily_use",
+    "Daily use",
+    "Friend support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Family_daily_adjMH,
+    "AI_MH_daily_use",
+    "Daily use",
+    "Family support",
+    "Table 5"
+  )
+)
+
+
+# OPTION 1: Adjust separately within each conceptual family
+table4_pvalues$p_BH_within_table <-
+  p.adjust(table4_pvalues$p_value, method = "BH")
+
+table4_pvalues$p_Bonferroni_within_table <-
+  p.adjust(table4_pvalues$p_value, method = "bonferroni")
+
+table5_pvalues$p_BH_within_table <-
+  p.adjust(table5_pvalues$p_value, method = "BH")
+
+table5_pvalues$p_Bonferroni_within_table <-
+  p.adjust(table5_pvalues$p_value, method = "bonferroni")
+
+
+# Adjust across all 21 inferential tests
+all_pvalues <- rbind(table4_pvalues, table5_pvalues)
+
+all_pvalues$p_BH_all_tests <-
+  p.adjust(all_pvalues$p_value, method = "BH")
+
+all_pvalues$p_Bonferroni_all_tests <-
+  p.adjust(all_pvalues$p_value, method = "bonferroni")
+
+
+# Indicators of statistical significance
+all_pvalues$significant_unadjusted <-
+  all_pvalues$p_value < .05
+
+all_pvalues$significant_BH_all_tests <-
+  all_pvalues$p_BH_all_tests < .05
+
+all_pvalues$significant_Bonferroni_all_tests <-
+  all_pvalues$p_Bonferroni_all_tests < .05
+
+
+# Round values for easier review
+all_pvalues$p_value_rounded <-
+  round(all_pvalues$p_value, 4)
+
+all_pvalues$p_BH_all_tests_rounded <-
+  round(all_pvalues$p_BH_all_tests, 4)
+
+all_pvalues$p_Bonferroni_all_tests_rounded <-
+  round(all_pvalues$p_Bonferroni_all_tests, 4)
+
+
+# Display complete results
+all_pvalues[
+  ,
+  c(
+    "table",
+    "exposure",
+    "outcome",
+    "estimate",
+    "p_value_rounded",
+    "p_BH_all_tests_rounded",
+    "p_Bonferroni_all_tests_rounded",
+    "significant_unadjusted",
+    "significant_BH_all_tests",
+    "significant_Bonferroni_all_tests"
+  )
+]
+
+
+# Show only results whose significance changes after BH correction
+subset(
+  all_pvalues,
+  significant_unadjusted != significant_BH_all_tests,
+  select = c(
+    table,
+    exposure,
+    outcome,
+    p_value,
+    p_BH_all_tests,
+    significant_unadjusted,
+    significant_BH_all_tests
+  )
+)
+```
+
+#Chatbots Alcohol or Drugs
+```{r Table 1}
+#AUDIT-C Total
+# Unweighted
+mean(ChatBots_DATA$AUDIT_C_total, na.rm = TRUE)
+sd(ChatBots_DATA$AUDIT_C_total, na.rm = TRUE)
+
+# Weighted
+coef(svymean(~AUDIT_C_total, design, na.rm = TRUE))
+SE(svymean(~AUDIT_C_total, design, na.rm = TRUE))
+sqrt(coef(svyvar(~AUDIT_C_total, design, na.rm = TRUE)))
+
+# Hazardous Drinking
+## Unweighted
+table(ChatBots_DATA$AUDIT_C_hazardous)
+prop.table(table(ChatBots_DATA$AUDIT_C_hazardous))
+
+## Weighted
+svymean(~AUDIT_C_hazardous, design, na.rm = TRUE)
+
+#Lifetime AI Chatbot Use for Alcohol or Drug Concerns
+## Unweighted
+table(ChatBots_DATA$AI_support_subst_recode)
+prop.table(table(ChatBots_DATA$AI_support_subst_recode))
+
+## Weighted
+svymean(~AI_support_subst_recode, design, na.rm = TRUE)
+```
+```{r Table 2}
+# Create new demographic variables without overwriting raw variables
+ChatBots_DATA <- ChatBots_DATA %>%
+  mutate(
+    gender3 = case_when(
+      gender4 == 1 ~ "Man",
+      gender4 == 2 ~ "Woman",
+      gender4 %in% c(3, 4) ~ "Gender diverse",
+      TRUE ~ NA_character_
+    ),
+    gender3 = factor(
+      gender3,
+      levels = c("Man", "Woman", "Gender diverse")
+    ),
+    race_factor = factor(
+      race,
+      levels = 1:8,
+      labels = c(
+        "White",
+        "Black",
+        "Hispanic",
+        "Asian",
+        "Native American",
+        "Two or more races",
+        "Other",
+        "Middle Eastern"
+      )
+    ),
+
+    race_factor = relevel(race_factor, ref = "White")
+  )
+
+# Verify recodes
+table(ChatBots_DATA$gender3, useNA = "ifany")
+table(ChatBots_DATA$race_factor, useNA = "ifany")
+
+# Rebuild survey design
+design <- svydesign(
+  ids = ~1,
+  weights = ~weight,
+  data = ChatBots_DATA
+)
+
+# Survey-weighted logistic regression
+table2_model <- svyglm(
+  AI_support_subst_recode ~
+    age +
+    gender3 +
+    race_factor,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(table2_model)
+
+# Adjusted odds ratios, confidence intervals, and p values
+table2_results <- data.frame(
+  Variable = names(coef(table2_model)),
+  aOR = exp(coef(table2_model)),
+  Lower95 = exp(confint(table2_model)[, 1]),
+  Upper95 = exp(confint(table2_model)[, 2]),
+  p = summary(table2_model)$coefficients[, 4]
+) %>%
+  mutate(
+    `aOR (95% CI)` = sprintf(
+      "%.2f (%.2f, %.2f)",
+      aOR,
+      Lower95,
+      Upper95
+    ),
+    `p value` = ifelse(
+      p < .001,
+      "<.001",
+      sprintf("%.3f", p)
+    )
+  ) %>%
+  select(
+    Variable,
+    `aOR (95% CI)`,
+    `p value`
+  )
+
+table2_results
+```
+```{r Table 3}
+# Restrict to respondents who were asked the
+# alcohol/drug AI chatbot question
+table3_data <- ChatBots_DATA %>%
+  filter(!is.na(AI_support_subst_recode))
+
+# Survey design
+design3 <- svydesign(
+  ids = ~1,
+  weights = ~weight,
+  data = table3_data
+)
+
+#Hazardous Drinking (AUDIT-C Cut-off)
+model_hazardous <- svyglm(
+  AUDIT_C_hazardous ~
+    AI_support_subst_recode +
+    age +
+    gender3 +
+    race_factor +
+    Daily_SM_use +
+    PHQ9_total +
+    GAD7_total,
+  design = design3,
+  family = quasibinomial()
+)
+
+summary(model_hazardous)
+
+#Adjusted Odds Ratios
+hazardous_results <- data.frame(
+  Variable = names(coef(model_hazardous)),
+  aOR = exp(coef(model_hazardous)),
+  Lower95 = exp(confint(model_hazardous)[,1]),
+  Upper95 = exp(confint(model_hazardous)[,2]),
+  p = summary(model_hazardous)$coefficients[,4]
+)
+
+hazardous_results <- hazardous_results %>%
+  mutate(
+    `aOR (95% CI)` = sprintf(
+      "%.2f (%.2f, %.2f)",
+      aOR,
+      Lower95,
+      Upper95
+    ),
+    `p value` = ifelse(
+      p < .001,
+      "<.001",
+      sprintf("%.3f", p)
+    )
+  ) %>%
+  dplyr::select(
+    Variable,
+    `aOR (95% CI)`,
+    `p value`
+  )
+
+hazardous_results
+
+#AUDIT-C Total Score (Continuous)
+model_total <- svyglm(
+  AUDIT_C_total ~
+    AI_support_subst_recode +
+    age +
+    gender3 +
+    race_factor +
+    Daily_SM_use +
+    PHQ9_total +
+    GAD7_total,
+  design = design3
+)
+
+summary(model_total)
+
+#Beta Coefficients
+total_results <- data.frame(
+  Variable = names(coef(model_total)),
+  Beta = coef(model_total),
+  Lower95 = confint(model_total)[,1],
+  Upper95 = confint(model_total)[,2],
+  p = summary(model_total)$coefficients[,4]
+)
+
+total_results <- total_results %>%
+  mutate(
+    `β (95% CI)` = sprintf(
+      "%.2f (%.2f, %.2f)",
+      Beta,
+      Lower95,
+      Upper95
+    ),
+    `p value` = ifelse(
+      p < .001,
+      "<.001",
+      sprintf("%.3f", p)
+    )
+  ) %>%
+  dplyr::select(
+    Variable,
+    `β (95% CI)`,
+    `p value`
+  )
+
+total_results
+
+#Exposure of Interest Only
+hazardous_results %>%
+  filter(Variable == "AI_support_subst_recode")
+
+total_results %>%
+  filter(Variable == "AI_support_subst_recode")
+
+
+```
 
 
 
