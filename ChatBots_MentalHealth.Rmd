@@ -1,0 +1,1470 @@
+---
+title: "Chatbots Mental Health"
+output: html_document
+date: "07-30-2026"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r Packages}
+library(haven)
+library(MASS)     
+library(dplyr)    
+library(car)    
+library(srvyr)
+library(pscl) 
+library(brant)
+library(tidyr)
+library(survey)
+library(openxlsx)
+library(psych)
+library(broom)
+library(purrr)
+```
+```{r Import Data}
+ChatBots_DATA <- read_sav("ChatBots_DATA.sav")
+```
+
+#Score Variables
+```{r Recoded variables}
+#Age
+ChatBots_DATA$age <- 2026 - ChatBots_DATA$birthyr
+
+#PHQ
+ChatBots_DATA$PHQ9_total <- rowSums(
+  ChatBots_DATA[, c(
+    "Depression_1",
+    "Depression_2",
+    "Depression_3",
+    "Depression_4",
+    "Depression_5",
+    "Depression_6",
+    "Depression_7",
+    "Depression_8",
+    "Depression_9"
+  )],
+  na.rm = FALSE
+)
+
+ChatBots_DATA$PHQ9_cutoff <- ifelse(
+ChatBots_DATA$PHQ9_total >= 10, 1, 0)
+
+#GAD
+ChatBots_DATA$GAD7_total <- rowSums(
+  ChatBots_DATA[, c(
+    "Anxiety_1",
+    "Anxiety_2",
+    "Anxiety_3",
+    "Anxiety_4",
+    "Anxiety_5",
+    "Anxiety_6",
+    "Anxiety_7"
+  )],
+  na.rm = FALSE
+)
+
+ChatBots_DATA$GAD7_cutoff <- ifelse(
+  ChatBots_DATA$GAD7_total >= 8,1, 0
+)
+
+#Help-Seeking
+ChatBots_DATA$Professional_help_yes <- ifelse(
+  ChatBots_DATA$Professional_help == 1,1,0)
+
+ChatBots_DATA$Friend_yes <- ifelse(
+  ChatBots_DATA$Friend == 1, 1, 0)
+
+ChatBots_DATA$Family_yes <- ifelse(
+  ChatBots_DATA$Family == 1, 1, 0)
+
+# General AI Chatbot Use
+ChatBots_DATA$Ai_ever_use_yes <- ifelse(
+  ChatBots_DATA$Ai_ever_use == 1,1,0)
+
+ChatBots_DATA$AI_30day_use <- ifelse(
+  ChatBots_DATA$Ai_frequency %in% c(2, 3, 4, 5, 6),1,0)
+
+ChatBots_DATA$AI_daily_use <- ifelse(
+  ChatBots_DATA$Ai_frequency %in% c(5, 6),1,0)
+
+# AI Platforms
+ChatBots_DATA$ChatGPT <- ifelse(ChatBots_DATA$Ai_used_m_1 == 1, 1, 0)
+ChatBots_DATA$Gemini <- ifelse(ChatBots_DATA$Ai_used_m_2 == 1, 1, 0)
+ChatBots_DATA$Claude <- ifelse(ChatBots_DATA$Ai_used_m_3 == 1, 1, 0)
+ChatBots_DATA$Copilot <- ifelse(ChatBots_DATA$Ai_used_m_4 == 1, 1, 0)
+ChatBots_DATA$MetaAI <- ifelse(ChatBots_DATA$Ai_used_m_6 == 1, 1, 0)
+ChatBots_DATA$Grok <- ifelse(ChatBots_DATA$Ai_used_m_7 == 1, 1, 0)
+ChatBots_DATA$OtherAI <- ifelse(ChatBots_DATA$Ai_used_m_14 == 1, 1, 0)
+
+# Lifetime AI Mental Health Support Use
+ChatBots_DATA$AI_MH_lifetime_use <- ifelse(
+  ChatBots_DATA$Ai_support == 1, 1, 0
+)
+
+ChatBots_DATA$AI_MH_lifetime_use[is.na(ChatBots_DATA$AI_MH_lifetime_use)] <- 0
+
+# Past 30-Day AI Mental Health Support Use
+ChatBots_DATA$AI_MH_30day_use <- ifelse(
+  ChatBots_DATA$Ai_support_frequency %in% c(2,3,4,5,6),1,0)
+
+# Daily AI Mental Health Support Use
+ChatBots_DATA$AI_MH_daily_use <- ifelse(
+  ChatBots_DATA$Ai_support_frequency %in% c(5,6),1,0)
+
+# Lifetime AI Substance-Use Support
+ChatBots_DATA$AI_substance_lifetime_use <- ifelse(
+  ChatBots_DATA$Ai_support_subst == 1, 1, 0
+)
+
+ChatBots_DATA$AI_substance_lifetime_use[is.na(ChatBots_DATA$AI_substance_lifetime_use)] <- 0
+
+#Support Type
+ChatBots_DATA$AI_reason_advice <- ifelse(ChatBots_DATA$Ai_support_type_1 %in% c(2,3,4), 1, 0)
+
+ChatBots_DATA$AI_reason_feelings <- ifelse(ChatBots_DATA$Ai_support_type_2 %in% c(2,3,4), 1, 0)
+
+ChatBots_DATA$AI_reason_emotions_out <- ifelse(ChatBots_DATA$Ai_support_type_3 %in% c(2,3,4), 1, 0)
+
+ChatBots_DATA$AI_reason_situation <- ifelse(ChatBots_DATA$Ai_support_type_4 %in% c(2,3,4), 1, 0)
+
+ChatBots_DATA$AI_reason_plan <- ifelse(ChatBots_DATA$Ai_support_type_5 %in% c(2,3,4), 1, 0)
+
+ChatBots_DATA$AI_reason_emotional_support <- ifelse(ChatBots_DATA$Ai_support_type_6 %in% c(2,3,4), 1, 0)
+
+ChatBots_DATA$AI_reason_positive <- ifelse(ChatBots_DATA$Ai_support_type_7 %in% c(2,3,4), 1, 0)
+
+ChatBots_DATA$AI_reason_sympathy <- ifelse(ChatBots_DATA$Ai_support_type_8 %in% c(2,3,4), 1, 0)
+
+# Make not asked / skipped missing for this section because this is among AI MH support users
+reason_vars <- c(
+  "AI_reason_advice",
+  "AI_reason_feelings",
+  "AI_reason_emotions_out",
+  "AI_reason_situation",
+  "AI_reason_plan",
+  "AI_reason_emotional_support",
+  "AI_reason_positive",
+  "AI_reason_sympathy")
+
+ChatBots_DATA[ChatBots_DATA$AI_MH_lifetime_use != 1, reason_vars] <- NA
+
+# AI Support Functions
+ChatBots_DATA$AI_function_available <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_1 == 1, 1, 0)
+
+ChatBots_DATA$AI_function_less_judged <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_2 == 1, 1, 0)
+
+ChatBots_DATA$AI_function_easier <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_3 == 1, 1, 0)
+
+ChatBots_DATA$AI_function_comfortable <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_4 == 1, 1, 0)
+
+ChatBots_DATA$AI_function_less_lonely <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_5 == 1, 1, 0)
+
+ChatBots_DATA$AI_function_guidance <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_6 == 1, 1, 0)
+
+ChatBots_DATA$AI_function_cheaper <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_7 == 1, 1, 0)
+
+ChatBots_DATA$AI_function_other <-
+  ifelse(ChatBots_DATA$Ai_support_function_m_8 == 1, 1, 0)
+
+#Daily Social Media use
+ChatBots_DATA$Daily_SM_use <- ifelse(
+  ChatBots_DATA$SM_Frequency_1 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_2 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_3 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_4 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_5 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_6 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_7 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_8 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_9 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_10 %in% c(4,5) |
+  ChatBots_DATA$SM_Frequency_11 %in% c(4,5),
+  1, 0
+)
+
+# AUDIT-C scoring
+ChatBots_DATA <- ChatBots_DATA %>%
+  mutate(
+    AUDIT_C_1_score = as.numeric(AUDIT_C_1),
+
+    AUDIT_C_2_score = case_when(
+      AUDIT_C_1 == 0 ~ 0,
+      AUDIT_C_2 == 9 ~ 0,
+      TRUE ~ as.numeric(AUDIT_C_2)
+    ),
+
+    AUDIT_C_3_score = case_when(
+      AUDIT_C_1 == 0 ~ 0,
+      AUDIT_C_3 == 9 ~ 0,
+      TRUE ~ as.numeric(AUDIT_C_3)
+    ),
+
+    AUDIT_C_total =
+      AUDIT_C_1_score +
+      AUDIT_C_2_score +
+      AUDIT_C_3_score
+  )
+
+#AI Chatbot Use for Alcohol/Drug Concerns
+ChatBots_DATA <- ChatBots_DATA %>%
+  mutate(
+    AI_support_subst_recode = case_when(
+      Ai_support_subst == 1 ~ 1,
+      Ai_support_subst == 2 ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
+
+#Hazardous Drinking (AUDIT-C)
+ChatBots_DATA <- ChatBots_DATA %>%
+  mutate(
+    AUDIT_C_hazardous = case_when(
+
+      # Men: AUDIT-C >= 4
+      gender4 == 1 & AUDIT_C_total >= 4 ~ 1,
+
+      # Women, non-binary, and other: AUDIT-C >= 3
+      gender4 %in% c(2, 3, 4) & AUDIT_C_total >= 3 ~ 1,
+
+      # Below the applicable cutoff
+      gender4 == 1 & AUDIT_C_total < 4 ~ 0,
+      gender4 %in% c(2, 3, 4) & AUDIT_C_total < 3 ~ 0,
+
+      TRUE ~ NA_real_
+    )
+  )
+
+
+```
+```{r Survey weighted object}
+design <- svydesign(
+  ids = ~1,
+  weights = ~weight,
+  data = ChatBots_DATA
+)
+
+#Helper function
+# Weighted %
+w_pct <- function(var){
+  svymean(as.formula(paste0("~", var)), design, na.rm = TRUE)
+}
+
+# Weighted mean
+w_mean <- function(var){
+  svymean(as.formula(paste0("~", var)), design, na.rm = TRUE)
+}
+
+# Weighted SD
+w_sd <- function(var){
+  sqrt(svyvar(as.formula(paste0("~", var)), design, na.rm = TRUE))
+}
+```
+```{r Survey duration}
+ChatBots_DATA$starttime <- as.POSIXct(ChatBots_DATA$starttime)
+ChatBots_DATA$endtime   <- as.POSIXct(ChatBots_DATA$endtime)
+
+ChatBots_DATA$duration_min <-
+  as.numeric(difftime(ChatBots_DATA$endtime,
+                      ChatBots_DATA$starttime,
+                      units="mins"))
+
+summary(ChatBots_DATA$duration_min)
+
+median(ChatBots_DATA$duration_min)
+
+quantile(ChatBots_DATA$duration_min,
+         probs=c(.01,.05,.10,.90,.95,.99))
+
+sum(ChatBots_DATA$duration_min > 60, na.rm = TRUE)
+
+sum(ChatBots_DATA$duration_min > 120, na.rm = TRUE)
+
+sum(ChatBots_DATA$duration_min > 1440, na.rm = TRUE)  # >1 day
+```
+
+#Chatbots Mental Health
+#Table 1
+```{r Age}
+#Age
+##Unweighted
+mean(ChatBots_DATA$age, na.rm=TRUE)
+sd(ChatBots_DATA$age, na.rm=TRUE)
+
+##Weighted
+coef(svymean(~age, design))
+SE(svymean(~age, design))
+sqrt(coef(svyvar(~age, design)))
+```
+```{r Gender}
+#Gender
+##Unweighted
+freqdist::freqdist(ChatBots_DATA$gender4)
+
+##Weighted
+100 * svymean(~factor(gender4), design)
+```
+```{r Race}
+#Race
+##Unweighted
+freqdist::freqdist(ChatBots_DATA$race)
+
+##Weighted
+100 * svymean(~factor(race), design)
+```
+```{r PHQ-9}
+# PHQ-9 Cuttoff
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$PHQ9_cutoff)
+
+## Weighted
+100 * coef(svymean(~PHQ9_cutoff, design, na.rm = TRUE))
+
+# PHQ-9 Total Score
+## Unweighted
+mean(ChatBots_DATA$PHQ9_total, na.rm = TRUE)
+sd(ChatBots_DATA$PHQ9_total, na.rm = TRUE)
+
+## Weighted
+coef(svymean(~PHQ9_total, design, na.rm = TRUE))
+sqrt(coef(svyvar(~PHQ9_total, design, na.rm = TRUE)))
+```
+```{r GAD-7}
+# GAD-7 Cutoff
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$GAD7_cutoff)
+
+## Weighted
+100 * coef(svymean(~GAD7_cutoff, design, na.rm = TRUE))
+
+# GAD-7 Total Score
+## Unweighted
+mean(ChatBots_DATA$GAD7_total, na.rm = TRUE)
+sd(ChatBots_DATA$GAD7_total, na.rm = TRUE)
+
+## Weighted
+coef(svymean(~GAD7_total, design, na.rm = TRUE))
+sqrt(coef(svyvar(~GAD7_total, design, na.rm = TRUE)))
+```
+```{r Help seeking}
+# Professional Help
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Professional_help_yes)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~Professional_help_yes,
+    design,
+    na.rm = TRUE)
+)
+
+# Friend Support
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Friend_yes)
+
+## Weighted
+100 * coef(svymean(~Friend_yes, design, na.rm = TRUE))
+
+# Family Support
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Family_yes)
+
+## Weighted
+100 * coef(svymean(~Family_yes, design, na.rm = TRUE))
+```
+```{r General chatBot use}
+# Lifetime AI Chatbot Use
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Ai_ever_use_yes)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~Ai_ever_use_yes,
+    design,
+    na.rm = TRUE))
+
+# Past 30-Day AI Chatbot Use
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_30day_use)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~AI_30day_use,
+    design,
+    na.rm = TRUE))
+
+# Daily or More AI Chatbot Use
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_daily_use)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~AI_daily_use,
+    design,
+    na.rm = TRUE))
+```
+```{r ChatBot platform}
+# ChatGPT
+
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$ChatGPT)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~ChatGPT,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Gemini
+
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Gemini)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~Gemini,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Meta AI
+
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$MetaAI)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~MetaAI,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Claude
+
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Claude)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~Claude,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Copilot
+
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Copilot)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~Copilot,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Grok
+
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$Grok)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~Grok,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Other
+
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$OtherAI)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~OtherAI,
+    design,
+    na.rm = TRUE
+  )
+)
+```
+```{r Mental health support}
+# Lifetime AI Mental Health Support Use
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_MH_lifetime_use)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~AI_MH_lifetime_use,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Past 30-Day AI Mental Health Support Use
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_MH_30day_use)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~AI_MH_30day_use,
+    design,
+    na.rm = TRUE
+  )
+)
+
+# Daily AI Mental Health Support Use
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_MH_daily_use)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~AI_MH_daily_use,
+    design,
+    na.rm = TRUE
+  )
+)
+
+
+# Lifetime AI Substance-Use Support
+## Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_substance_lifetime_use)
+
+## Weighted
+100 * coef(
+  svymean(
+    ~AI_substance_lifetime_use,
+    design,
+    na.rm = TRUE
+  )
+)
+```
+
+#Table 2
+```{r Coping strategies}
+#Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_reason_advice)
+freqdist::freqdist(ChatBots_DATA$AI_reason_feelings)
+freqdist::freqdist(ChatBots_DATA$AI_reason_emotions_out)
+freqdist::freqdist(ChatBots_DATA$AI_reason_situation)
+freqdist::freqdist(ChatBots_DATA$AI_reason_plan)
+freqdist::freqdist(ChatBots_DATA$AI_reason_emotional_support)
+freqdist::freqdist(ChatBots_DATA$AI_reason_positive)
+freqdist::freqdist(ChatBots_DATA$AI_reason_sympathy)
+
+#Weighted
+100 * coef(svymean(~AI_reason_advice, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_feelings, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_emotions_out, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_situation, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_plan, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_emotional_support, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_positive, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_sympathy, design, na.rm = TRUE))
+```
+```{r Coping strategies - sensitivity analysis}
+#0 = not at all/a little; 1 = medium/a lot
+
+ChatBots_DATA$AI_reason_advice_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_1 %in% c(3, 4), 1, 0
+)
+
+ChatBots_DATA$AI_reason_feelings_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_2 %in% c(3, 4), 1, 0
+)
+
+ChatBots_DATA$AI_reason_emotions_out_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_3 %in% c(3, 4), 1, 0
+)
+
+ChatBots_DATA$AI_reason_situation_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_4 %in% c(3, 4), 1, 0
+)
+
+ChatBots_DATA$AI_reason_plan_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_5 %in% c(3, 4), 1, 0
+)
+
+ChatBots_DATA$AI_reason_emotional_support_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_6 %in% c(3, 4), 1, 0
+)
+
+ChatBots_DATA$AI_reason_positive_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_7 %in% c(3, 4), 1, 0
+)
+
+ChatBots_DATA$AI_reason_sympathy_med <- ifelse(
+  ChatBots_DATA$Ai_support_type_8 %in% c(3, 4), 1, 0
+)
+
+# Limit to respondents who reported lifetime AI mental health support use
+reason_med_vars <- c(
+  "AI_reason_advice_med",
+  "AI_reason_feelings_med",
+  "AI_reason_emotions_out_med",
+  "AI_reason_situation_med",
+  "AI_reason_plan_med",
+  "AI_reason_emotional_support_med",
+  "AI_reason_positive_med",
+  "AI_reason_sympathy_med"
+)
+
+ChatBots_DATA[ChatBots_DATA$AI_MH_lifetime_use != 1, reason_med_vars] <- NA
+
+# Rebuild survey design after recodes
+design <- svydesign(
+  ids = ~1,
+  weights = ~weight,
+  data = ChatBots_DATA
+)
+
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_reason_advice_med)
+freqdist::freqdist(ChatBots_DATA$AI_reason_feelings_med)
+freqdist::freqdist(ChatBots_DATA$AI_reason_emotions_out_med)
+freqdist::freqdist(ChatBots_DATA$AI_reason_situation_med)
+freqdist::freqdist(ChatBots_DATA$AI_reason_plan_med)
+freqdist::freqdist(ChatBots_DATA$AI_reason_emotional_support_med)
+freqdist::freqdist(ChatBots_DATA$AI_reason_positive_med)
+freqdist::freqdist(ChatBots_DATA$AI_reason_sympathy_med)
+
+# Weighted
+100 * coef(svymean(~AI_reason_advice_med, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_feelings_med, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_emotions_out_med, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_situation_med, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_plan_med, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_emotional_support_med, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_positive_med, design, na.rm = TRUE))
+100 * coef(svymean(~AI_reason_sympathy_med, design, na.rm = TRUE))
+
+```
+
+#Table 3
+```{r Reasons for support}
+# Available when I need support
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_available)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_available,
+    design,
+    na.rm = TRUE))
+
+# Less judged than talking to people
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_less_judged)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_less_judged,
+    design,
+    na.rm = TRUE))
+
+# Easier than talking to friends, family, or professionals
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_easier)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_easier,
+    design,
+    na.rm = TRUE))
+
+# Can say things I would not feel comfortable saying to others
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_comfortable)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_comfortable,
+    design,
+    na.rm = TRUE))
+
+# Helps me feel less lonely
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_less_lonely)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_less_lonely,
+    design,
+    na.rm = TRUE))
+
+# Gives advice or guidance
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_guidance)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_guidance,
+    design,
+    na.rm = TRUE))
+
+# Cheaper than professional counseling or therapy
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_cheaper)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_cheaper,
+    design,
+    na.rm = TRUE))
+
+# Other
+
+# Unweighted
+freqdist::freqdist(ChatBots_DATA$AI_function_other)
+
+# Weighted
+100 * coef(
+  svymean(
+    ~AI_function_other,
+    design,
+    na.rm = TRUE))
+
+
+
+```
+
+#Table 4
+```{r Lifetime mental health use}
+#PHQ-9 cutoff
+MH_PHQ9_lifetime <- svyglm(
+  PHQ9_cutoff ~ AI_MH_lifetime_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_PHQ9_lifetime)
+
+# Odds Ratio
+exp(coef(MH_PHQ9_lifetime))
+
+# 95% CI
+exp(confint(MH_PHQ9_lifetime))
+
+# GAD-7 cutoff
+MH_GAD7_lifetime <- svyglm(
+  GAD7_cutoff ~ AI_MH_lifetime_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_GAD7_lifetime)
+
+# Odds Ratio
+exp(coef(MH_GAD7_lifetime))
+
+# 95% CI
+exp(confint(MH_GAD7_lifetime))
+
+# PHQ-9 total score
+MH_PHQ9_total_lifetime <- svyglm(
+  PHQ9_total ~ AI_MH_lifetime_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design
+)
+
+summary(MH_PHQ9_total_lifetime)
+
+# Beta
+coef(MH_PHQ9_total_lifetime)
+
+# 95% CI
+confint(MH_PHQ9_total_lifetime)
+
+# GAD-7 total score
+MH_GAD7_total_lifetime <- svyglm(
+  GAD7_total ~ AI_MH_lifetime_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design
+)
+
+summary(MH_GAD7_total_lifetime)
+
+coef(MH_GAD7_total_lifetime)
+
+confint(MH_GAD7_total_lifetime)
+
+```
+```{r Past 30 day mental health use}
+# PHQ-9 cutoff
+MH_PHQ9_30day <- svyglm(
+  PHQ9_cutoff ~ AI_MH_30day_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_PHQ9_30day)
+
+# Odds Ratios
+exp(coef(MH_PHQ9_30day))
+
+# 95% CI
+exp(confint(MH_PHQ9_30day))
+
+# GAD-7 cutoff
+MH_GAD7_30day <- svyglm(
+  GAD7_cutoff ~ AI_MH_30day_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_GAD7_30day)
+
+# Odds Ratios
+exp(coef(MH_GAD7_30day))
+
+# 95% CI
+exp(confint(MH_GAD7_30day))
+
+# PHQ-9 total score
+MH_PHQ9_total_30day <- svyglm(
+  PHQ9_total ~ AI_MH_30day_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design
+)
+
+summary(MH_PHQ9_total_30day)
+
+coef(MH_PHQ9_total_30day)
+
+confint(MH_PHQ9_total_30day)
+
+# GAD-7 total score
+MH_GAD7_total_30day <- svyglm(
+  GAD7_total ~ AI_MH_30day_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design
+)
+
+summary(MH_GAD7_total_30day)
+
+coef(MH_GAD7_total_30day)
+
+confint(MH_GAD7_total_30day)
+
+```
+```{r Daily mental health use}
+# PHQ-9 cutoff
+MH_PHQ9_daily <- svyglm(
+  PHQ9_cutoff ~ AI_MH_daily_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_PHQ9_daily)
+
+exp(coef(MH_PHQ9_daily))
+exp(confint(MH_PHQ9_daily))
+
+#GAD-7 Cutoff
+MH_GAD7_daily <- svyglm(
+  GAD7_cutoff ~ AI_MH_daily_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_GAD7_daily)
+
+exp(coef(MH_GAD7_daily))
+exp(confint(MH_GAD7_daily))
+
+#PHQ-9 Total
+MH_PHQ9_total_daily <- svyglm(
+  PHQ9_total ~ AI_MH_daily_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design
+)
+
+summary(MH_PHQ9_total_daily)
+
+coef(MH_PHQ9_total_daily)
+confint(MH_PHQ9_total_daily)
+
+#GAD-7 Total
+MH_GAD7_total_daily <- svyglm(
+  GAD7_total ~ AI_MH_daily_use +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design
+)
+
+summary(MH_GAD7_total_daily)
+
+coef(MH_GAD7_total_daily)
+confint(MH_GAD7_total_daily)
+```
+
+#Table 5
+```{r Lifetime help seeking}
+# Professional support
+MH_Prof_lifetime_adjMH <- svyglm(
+  Professional_help_yes ~ AI_MH_lifetime_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Prof_lifetime_adjMH)
+
+exp(coef(MH_Prof_lifetime_adjMH))
+exp(confint(MH_Prof_lifetime_adjMH))
+
+
+# Friend support
+MH_Friend_lifetime_adjMH <- svyglm(
+  Friend_yes ~ AI_MH_lifetime_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Friend_lifetime_adjMH)
+
+exp(coef(MH_Friend_lifetime_adjMH))
+exp(confint(MH_Friend_lifetime_adjMH))
+
+
+# Family support
+MH_Family_lifetime_adjMH <- svyglm(
+  Family_yes ~ AI_MH_lifetime_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Family_lifetime_adjMH)
+
+exp(coef(MH_Family_lifetime_adjMH))
+exp(confint(MH_Family_lifetime_adjMH))
+
+
+
+```
+```{r Past 30-day help seeking}
+# Professional support
+MH_Prof_30day_adjMH <- svyglm(
+  Professional_help_yes ~ AI_MH_30day_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Prof_30day_adjMH)
+
+exp(coef(MH_Prof_30day_adjMH))
+exp(confint(MH_Prof_30day_adjMH))
+
+
+# Friend support
+MH_Friend_30day_adjMH <- svyglm(
+  Friend_yes ~ AI_MH_30day_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Friend_30day_adjMH)
+
+exp(coef(MH_Friend_30day_adjMH))
+exp(confint(MH_Friend_30day_adjMH))
+
+
+# Family support
+MH_Family_30day_adjMH <- svyglm(
+  Family_yes ~ AI_MH_30day_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Family_30day_adjMH)
+
+exp(coef(MH_Family_30day_adjMH))
+exp(confint(MH_Family_30day_adjMH))
+```
+```{r Daily help seeking}
+# Professional support
+MH_Prof_daily_adjMH <- svyglm(
+  Professional_help_yes ~ AI_MH_daily_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Prof_daily_adjMH)
+
+exp(coef(MH_Prof_daily_adjMH))
+exp(confint(MH_Prof_daily_adjMH))
+
+
+# Friend support
+MH_Friend_daily_adjMH <- svyglm(
+  Friend_yes ~ AI_MH_daily_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Friend_daily_adjMH)
+
+exp(coef(MH_Friend_daily_adjMH))
+exp(confint(MH_Friend_daily_adjMH))
+
+
+# Family support
+MH_Family_daily_adjMH <- svyglm(
+  Family_yes ~ AI_MH_daily_use +
+    PHQ9_total +
+    GAD7_total +
+    age +
+    factor(gender4) +
+    factor(race) +
+    educ +
+    Daily_SM_use,
+  design = design,
+  family = quasibinomial()
+)
+
+summary(MH_Family_daily_adjMH)
+
+exp(coef(MH_Family_daily_adjMH))
+exp(confint(MH_Family_daily_adjMH))
+```
+
+#BH Correction
+```{r Multiple-comparison corrections}
+# Helper function 
+extract_svy_p <- function(model, term, exposure, outcome, table) {
+  
+  coef_table <- summary(model)$coefficients
+  
+  # Automatically identify the p-value column
+  p_col <- grep("^Pr\\(", colnames(coef_table), value = TRUE)
+  
+  if (length(p_col) != 1) {
+    stop("Could not uniquely identify the p-value column.")
+  }
+  
+  if (!term %in% rownames(coef_table)) {
+    stop(paste("Term", term, "was not found in the model."))
+  }
+  
+  data.frame(
+    table = table,
+    exposure = exposure,
+    outcome = outcome,
+    term = term,
+    estimate = coef_table[term, "Estimate"],
+    p_value = coef_table[term, p_col],
+    stringsAsFactors = FALSE
+  )
+}
+
+
+# TABLE 4: Mental health outcomes
+table4_pvalues <- rbind(
+  
+  # Lifetime AI mental health support use
+  extract_svy_p(
+    MH_PHQ9_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "PHQ-9 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "GAD-7 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_PHQ9_total_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "PHQ-9 total",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_total_lifetime,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "GAD-7 total",
+    "Table 4"
+  ),
+  
+  
+  # Past 30-day AI mental health support use
+  extract_svy_p(
+    MH_PHQ9_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "PHQ-9 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "GAD-7 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_PHQ9_total_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "PHQ-9 total",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_total_30day,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "GAD-7 total",
+    "Table 4"
+  ),
+  
+  
+  # Daily AI mental health support use
+  extract_svy_p(
+    MH_PHQ9_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "PHQ-9 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "GAD-7 cutoff",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_PHQ9_total_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "PHQ-9 total",
+    "Table 4"
+  ),
+  
+  extract_svy_p(
+    MH_GAD7_total_daily,
+    "AI_MH_daily_use",
+    "Daily use",
+    "GAD-7 total",
+    "Table 4"
+  )
+)
+
+
+# TABLE 5: Human help-seeking outcomes
+table5_pvalues <- rbind(
+  
+  # Lifetime AI mental health support use
+  extract_svy_p(
+    MH_Prof_lifetime_adjMH,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "Professional support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Friend_lifetime_adjMH,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "Friend support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Family_lifetime_adjMH,
+    "AI_MH_lifetime_use",
+    "Lifetime use",
+    "Family support",
+    "Table 5"
+  ),
+  
+  
+  # Past 30-day AI mental health support use
+  extract_svy_p(
+    MH_Prof_30day_adjMH,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "Professional support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Friend_30day_adjMH,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "Friend support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Family_30day_adjMH,
+    "AI_MH_30day_use",
+    "Past 30-day use",
+    "Family support",
+    "Table 5"
+  ),
+  
+  
+  # Daily AI mental health support use
+  extract_svy_p(
+    MH_Prof_daily_adjMH,
+    "AI_MH_daily_use",
+    "Daily use",
+    "Professional support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Friend_daily_adjMH,
+    "AI_MH_daily_use",
+    "Daily use",
+    "Friend support",
+    "Table 5"
+  ),
+  
+  extract_svy_p(
+    MH_Family_daily_adjMH,
+    "AI_MH_daily_use",
+    "Daily use",
+    "Family support",
+    "Table 5"
+  )
+)
+
+
+# OPTION 1: Adjust separately within each conceptual family
+table4_pvalues$p_BH_within_table <-
+  p.adjust(table4_pvalues$p_value, method = "BH")
+
+table4_pvalues$p_Bonferroni_within_table <-
+  p.adjust(table4_pvalues$p_value, method = "bonferroni")
+
+table5_pvalues$p_BH_within_table <-
+  p.adjust(table5_pvalues$p_value, method = "BH")
+
+table5_pvalues$p_Bonferroni_within_table <-
+  p.adjust(table5_pvalues$p_value, method = "bonferroni")
+
+
+# Adjust across all 21 inferential tests
+all_pvalues <- rbind(table4_pvalues, table5_pvalues)
+
+all_pvalues$p_BH_all_tests <-
+  p.adjust(all_pvalues$p_value, method = "BH")
+
+all_pvalues$p_Bonferroni_all_tests <-
+  p.adjust(all_pvalues$p_value, method = "bonferroni")
+
+
+# Indicators of statistical significance
+all_pvalues$significant_unadjusted <-
+  all_pvalues$p_value < .05
+
+all_pvalues$significant_BH_all_tests <-
+  all_pvalues$p_BH_all_tests < .05
+
+all_pvalues$significant_Bonferroni_all_tests <-
+  all_pvalues$p_Bonferroni_all_tests < .05
+
+
+# Round values for easier review
+all_pvalues$p_value_rounded <-
+  round(all_pvalues$p_value, 4)
+
+all_pvalues$p_BH_all_tests_rounded <-
+  round(all_pvalues$p_BH_all_tests, 4)
+
+all_pvalues$p_Bonferroni_all_tests_rounded <-
+  round(all_pvalues$p_Bonferroni_all_tests, 4)
+
+
+# Display complete results
+all_pvalues[
+  ,
+  c(
+    "table",
+    "exposure",
+    "outcome",
+    "estimate",
+    "p_value_rounded",
+    "p_BH_all_tests_rounded",
+    "p_Bonferroni_all_tests_rounded",
+    "significant_unadjusted",
+    "significant_BH_all_tests",
+    "significant_Bonferroni_all_tests"
+  )
+]
+
+
+# Show only results whose significance changes after BH correction
+subset(
+  all_pvalues,
+  significant_unadjusted != significant_BH_all_tests,
+  select = c(
+    table,
+    exposure,
+    outcome,
+    p_value,
+    p_BH_all_tests,
+    significant_unadjusted,
+    significant_BH_all_tests
+  )
+)
+```
+
